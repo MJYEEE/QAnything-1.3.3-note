@@ -8,8 +8,8 @@
 # **Q**uestion and **A**nswer based on **Anything**
 
 <p align="center">
-  <a href="./README.md">English</a> |
-  <a href="./README_zh.md">简体中文</a>
+  <a href="./README_zh.md">简体中文</a> |
+  <a href="./README_EN.md">English</a>
 </p>
 
 </div>
