@@ -1,136 +1,153 @@
-version: '3.5'
+version: '3.5' # 这表示使用 Docker Compose 的 3.5 版本
 
 services:
   elasticsearch:
-    container_name: es-container-local
-    image: "docker.elastic.co/elasticsearch/elasticsearch:8.11.4"
-    privileged: true
+    container_name: es-container-local # 指定容器名称为 es-container-local
+    image: "docker.elastic.co/elasticsearch/elasticsearch:8.11.4" # 使用 Elasticsearch 8.11.4 的 Docker 镜像
+    privileged: true # 设置容器为特权模式，允许容器访问宿主机的所有设备
+    #  默认端口是关闭的，如果需要有其他的服务也要用到这个可以打开映射到主机 
     # ports:
     #   - 9200:9200
     #   - 9300:9300
-    restart: on-failure
-    environment:
+    restart: on-failure # 设置为 on-failure，当容器失败时自动重启
+    environment: # 置环境变量以配置 Elasticsearch，包括单节点模式、禁用安全性、设置 Java 堆大小。
       - discovery.type=single-node
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms1024m -Xmx1024m"
-    volumes:
+    volumes: # 挂载宿主机目录到容器，用于插件和数据存储 
+    # 以下挂载方具体解释请去看对应md的说明
+    # 简单将就是将主机下qanything文件里的 /volumes/es/data 和 /third_party/es/plugins 
+    # 映射到es容器中的/usr/share/elasticsearch/plugins 和 /usr/share/elasticsearch/data
       - ${DOCKER_VOLUME_DIRECTORY:-.}/third_party/es/plugins:/usr/share/elasticsearch/plugins
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/es/data:/usr/share/elasticsearch/data
-    healthcheck:
-      test: curl --fail http://localhost:9200/_cat/health || exit 1
-      interval: 30s
-      timeout: 20s
-      retries: 3
+    healthcheck: # 定义健康检查，确保 Elasticsearch 正常运行
+      # 使用 curl 命令检查 Elasticsearch 的健康状态。如果访问的 URL 返回成功（状态码 200），则表示健康；否则返回失败
+      test: curl --fail http://localhost:9200/_cat/health || exit 1 
+      interval: 30s # 每 30 秒检查一次
+      timeout: 20s # 每次检查的超时时间为 20 秒
+      retries: 3 # 如果连续失败 3 次，将容器标记为不健康
 
   etcd:
-    container_name: milvus-etcd-local
-    image: quay.io/coreos/etcd:v3.5.5
-    environment:
+    container_name: milvus-etcd-local # 容器名称为 milvus-etcd-local
+    image: quay.io/coreos/etcd:v3.5.5 # 使用 Etcd 3.5.5 的 Docker 镜像
+    environment: # 配置 Etcd 的环境变量，如自动压缩模式、保留的修订版本等
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
       - ETCD_QUOTA_BACKEND_BYTES=4294967296
       - ETCD_SNAPSHOT_COUNT=50000
-    volumes:
+    volumes: # 将宿主机的目录挂载到 Etcd 的数据目录
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+    # 指定启动命令，设置客户端和服务器的 URL
     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
-    healthcheck:
+    healthcheck: # 健康检查，确保 Etcd 正常工作
+      # 使用 etcdctl endpoint health 命令检查 etcd 的健康状态。   
       test: ["CMD", "etcdctl", "endpoint", "health"]
       interval: 30s
       timeout: 20s
       retries: 3
 
   minio:
-    container_name: milvus-minio-local
-    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
-    environment:
+    container_name: milvus-minio-local # 容器名称为 milvus-minio-local
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z # 使用 MinIO 的指定版本
+    environment: # 设置访问密钥和秘密密钥
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     # ports:
     #   - "9001:9001"
     #       - "9000:9000"
-    volumes:
+    volumes: # 挂载数据目录
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+    # 启动 MinIO 服务器并指定控制台地址
     command: minio server /minio_data --console-address ":9001"
-    healthcheck:
+    healthcheck: # 健康检查，确保 MinIO 正常运行
+      # 使用 curl 命令检查 Minio 的健康状态
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
 
   standalone:
-    container_name: milvus-standalone-local
-    image: milvusdb/milvus:v2.3.4
-    logging:
+    container_name: milvus-standalone-local # 容器名称为 milvus-standalone-local
+    image: milvusdb/milvus:v2.3.4 # 使用 Milvus 的指定版本
+    logging: # 配置日志驱动和大小
       driver: "json-file"
       options:
         max-size: "100m"
         max-file: "3"
+    # 启动 Milvus 的命令
     command: ["milvus", "run", "standalone"]
-    security_opt:
+    security_opt: # 设置安全选项，允许不受限的系统调用
     - seccomp:unconfined
-    environment:
+    environment:  # 设置 Etcd 和 MinIO 的地址
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
-    volumes:
+    volumes:  # 挂载数据目录
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
-    healthcheck:
+    healthcheck: # 健康检查
+      # 使用 curl 命令检查 Milvus 的健康状态
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
       interval: 30s
-      start_period: 90s
+      start_period: 90s # 在容器启动后，前 90 秒的健康检查失败将被忽略
       timeout: 20s
       retries: 3
     # ports:
     #       - "19530:19530"
     #       - "9091:9091"
-    depends_on:
+    depends_on: # 指定依赖的服务，确保 Etcd 和 MinIO 在 Milvus 启动前运行
       - "etcd"
       - "minio"
 
   mysql:
-    container_name: mysql-container-local
-    privileged: true
-    image: mysql
+    container_name: mysql-container-local # 容器名称为 mysql-container-local
+    privileged: true # 容器运行在特权模式
+    image: mysql # 使用 MySQL 的默认镜像
+    # 没有开启mysql在主机上的端口，如果需要，请取消注释
     #     ports:
     #       - "3306:3306"
-    environment:
+    environment: # 设置 MySQL 的 root 密码
       - MYSQL_ROOT_PASSWORD=123456
-    volumes:
+    volumes: # 挂载数据目录
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/mysql:/var/lib/mysql
 
+  ############# 主程序容器 ################
   qanything_local:
-    container_name: qanything-container-local
-    image: freeren/qanything:v1.2.2
+    container_name: qanything-container-local # 容器名称为 qanything-container-local
+    image: freeren/qanything:v1.2.2 # 使用 QAnything 的指定版本
     # runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-
+    deploy: # 配置 GPU 资源
+      resources: # 定义资源请求和限制，包括 CPU、内存和设备
+        reservations: # 用于指定对资源的保留。它确保在容器调度时，所需的资源能够被分配
+          devices: # 用于定义容器所需的特定设备
+            - driver: nvidia # 指定要使用的设备驱动。这里使用的是 NVIDIA 驱动，表明容器将使用 NVIDIA GPU
+              count: "all" # 表示请求所有可用的 GPU。这意味着容器可以使用主机上所有的 NVIDIA GPU 设备 
+              capabilities: ["gpu"] # 指定容器需要的设备功能。在这里，gpu 表示容器需要访问 GPU 功能
+    # 启动命令，根据环境变量选择本地或云的启动脚本
+    # 具体运行内容，请看对应md文件描述
     command: /bin/bash -c 'if [ "${LLM_API}" = "local" ]; then /workspace/qanything_local/scripts/run_for_local_option.sh -c $LLM_API -i $DEVICE_ID -b $RUNTIME_BACKEND -m $MODEL_NAME -t $CONV_TEMPLATE -p $TP -r $GPU_MEM_UTILI; else /workspace/qanything_local/scripts/run_for_cloud_option.sh -c $LLM_API -i $DEVICE_ID -b $RUNTIME_BACKEND; fi; while true; do sleep 5; done'
 
-    privileged: true
-    shm_size: '8gb'
-    volumes:
+    privileged: true # 特权模式
+    shm_size: '8gb' # 设置共享内存大小
+    volumes: # 挂载模型目录和工作目录
       - ${DOCKER_VOLUME_DIRECTORY:-.}/assets/custom_models:/model_repos/CustomLLM
       - ${DOCKER_VOLUME_DIRECTORY:-.}/:/workspace/qanything_local/
-    ports:
+    ports: # 映射端口，已经对外开放，可以直接访问
       - "8777:8777"
-    environment:
+    environment: # 设置环境变量
       - NCCL_LAUNCH_MODE=PARALLEL
       - GPUID1=${GPUID1:-0}
       - GPUID2=${GPUID2:-0}
       - MODEL_SIZE=${MODEL_SIZE:-0B}
       - USER_IP=${USER_IP:-localhost}
-    depends_on:
+    depends_on: # 依赖于 Milvus、MySQL 和 Elasticsearch （Milvus 又依赖于 Etcd 和 MinIO）
       - "standalone"
       - "mysql"
       - "elasticsearch"
-    tty: true
-    stdin_open: true
+    # 以下两行表示容器启用终端，你可以在容器内使用终端 相当于 docker run 命令中使用 -it 选项 
+    tty: true # 启用伪终端 
+    stdin_open: true # 保持标准输入开放
 
-networks:
-  default:
-    name: qanything_milvus_mysql_local
+# 定义一个默认网络
+# 通过配置该网络，使这个网络中的所有服务可以互相访问和通信
+networks: # 这是 Docker Compose 文件中的一个顶级配置项，用于定义网络设置。通过网络配置，用户可以控制容器间的通信方式。
+  default: # 表示这是一个默认网络配置。Docker Compose 在创建服务时，会将所有服务连接到这个默认网络，除非服务另行指定使用其他网络
+    name: qanything_milvus_mysql_local]
