@@ -24,7 +24,7 @@ script_name=$(basename "$0") # 获取当前脚本的名称，并将其赋值给�
 # 中文帮助信息 note()：
 # -c : 选项 {local, cloud} 指定 llm API 模式，默认为 'local'。如果设置为 '-c cloud'，请先在 run.sh 中手动将环境 {OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_API_MODEL_NAME, OPENAI_API_CONTEXT_LENGTH} 设置为 .env
 # -i <device_id> : 用于指定要使用的GPU设备ID。例如，-i 0 指定使用第一块GPU设备
-# -b <runtime_backend> : 用于指定LLM推理后端，可选项有{default,hf,vllm}
+# -b <runtime_backend> : 用于指定LLM推理后端，可选项有{default,hf,vllm} default是FasterTransformer
 # -m <model_name> : 指定参数使用 FastChat 服务 API 加载 LLM 模型的路径，options={Qwen-7B-Chat, deepseek-llm-7b-chat, ...}
 # -t <conv_template> : 使用FastChat服务API时根据LLM模型指定对话模板参数，options={qwen-7b-chat, deepseek-chat, ...}
 # -p <tensor_parallel> : 使用选项{1, 2} 在使用 FastChat 服务 API 时为 vllm 后端设置张量并行参数，默认 tensor_parallel=1
