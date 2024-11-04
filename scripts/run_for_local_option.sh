@@ -1,5 +1,6 @@
 #!/bin/bash
-
+# 本脚本是在qanything容器中运行的
+# 更新或添加环境变量
 update_or_append_to_env() {
   local key=$1
   local value=$2
@@ -15,8 +16,9 @@ update_or_append_to_env() {
   fi
 }
 
+# 用于检查指定的日志文件中是否包含特定的错误信息
 check_log_errors() {
-    local log_file=$1  # 将第一个参数赋值给变量log_file，表示日志文件的路径
+    local log_file=$1  # $1表示将第一个参数赋值给变量log_file，表示日志文件的路径 # local 关键字用于声明一个局部变量
 
     # 检查日志文件是否存在
     if [[ ! -f "$log_file" ]]; then
@@ -35,6 +37,8 @@ check_log_errors() {
     fi
 }
 
+# 检测CustomLLM文件夹下$1文件夹是否存在
+# 检测本地模型是否存在
 check_folder_existence() {
   if [ ! -d "/model_repos/CustomLLM/$1" ]; then
     echo "The $1 folder does not exist under QAnything/assets/custom_models/. Please check your setup."
@@ -43,8 +47,18 @@ check_folder_existence() {
   fi
 }
 
-script_name=$(basename "$0")
+# 将当前教程名称赋值给script_name  $0表示当前脚本的路径，basename 命令用于提取路径中的文件名部分
+script_name=$(basename "$0") 
 
+# 帮助信息 和 run.sh中的一样 参数如下
+# -c : 选项 {local, cloud} 指定 llm API 模式，默认为 'local'。如果设置为 '-c cloud'，请先在 run.sh 中手动将环境 {OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_API_MODEL_NAME, OPENAI_API_CONTEXT_LENGTH} 设置为 .env
+# -i <device_id> : 用于指定要使用的GPU设备ID。例如，-i 0 指定使用第一块GPU设备
+# -b <runtime_backend> : 用于指定LLM推理后端，可选项有{default,hf,vllm}
+# -m <model_name> : 指定参数使用 FastChat 服务 API 加载 LLM 模型的路径，options={Qwen-7B-Chat, deepseek-llm-7b-chat, ...}
+# -t <conv_template> : 使用FastChat服务API时根据LLM模型指定对话模板参数，options={qwen-7b-chat, deepseek-chat, ...}
+# -p <tensor_parallel> : 使用选项{1, 2} 在使用 FastChat 服务 API 时为 vllm 后端设置张量并行参数，默认 tensor_parallel=1
+# -r <gpu_memory_utilization> : 使用 FastChat 服务 API 时为 vllm 后端指定参数 gpu_memory_utilization (0,1]，默认 gpu_memory_utilization=0.81
+# -h : 显示帮助使用信息。有关更多信息，请参阅 docs/QAnything_Startup_Usage_README.md
 usage() {
   echo "Usage: $script_name [-c <llm_api>] [-i <device_id>] [-b <runtime_backend>] [-m <model_name>] [-t <conv_template>] [-p <tensor_parallel>] [-r <gpu_memory_utilization>] [-h]"
   echo "  -c : Options {local, cloud} to specify the llm API mode, default is 'local'. If set to '-c cloud', please mannually set the environments {OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_API_MODEL_NAME, OPENAI_API_CONTEXT_LENGTH} into .env fisrt in run.sh"
@@ -58,6 +72,7 @@ usage() {
   exit 1
 }
 
+# 设置初始参数
 llm_api="local"
 device_id="0"
 runtime_backend="default"
@@ -102,6 +117,7 @@ if [ "$default_checksum" != "$checksum" ]; then
     checksum=$(find /workspace/qanything_local/third_party/FastChat -type f -exec md5sum {} + | awk '{print $1}' | sort | md5sum | awk '{print $1}') && echo "$checksum" > /workspace/qanything_local/third_party/checksum.config
 fi
 
+# 检查是否安装了vllm，如果没有则安装FastChat下所有需要的东西
 install_deps=$(pip list | grep vllm)
 if [[ "$install_deps" != *"vllm"* ]]; then
     echo "vllm deps not found"
@@ -111,6 +127,8 @@ fi
 
 mkdir -p /model_repos/QAEnsemble_base /model_repos/QAEnsemble_embed_rerank && mkdir -p /workspace/qanything_local/logs/debug_logs && mkdir -p /workspace/qanything_local/logs/qa_logs
 if [ ! -L "/model_repos/QAEnsemble_base/base" ]; then
+  # ln -s表示创建软链接，类似windows下的快捷方式
+  # 在/model_repos/QAEnsemble_abse下创建一个名为 base 的符号链接，该符号链接指向 /model_repos/QAEnsemble/base 目录。 . ：这表示当前目录，即在当前目录下创建符号链接
   cd /model_repos/QAEnsemble_base && ln -s /model_repos/QAEnsemble/base .
 fi
 
@@ -122,6 +140,7 @@ if [ ! -L "/model_repos/QAEnsemble_embed_rerank/embed" ]; then
   cd /model_repos/QAEnsemble_embed_rerank && ln -s /model_repos/QAEnsemble/embed .
 fi
 
+# qanything_local是宿主机上的qanything文件夹，映射到了容器内
 cd /workspace/qanything_local
 
 # 设置默认值
@@ -156,20 +175,24 @@ gpu_series=$(echo $gpu_model | grep -oP '(RTX\s*(30|40)|A(10|30|40|100|800))')
 #fi
 # compute_capability=$(jq -r ".[\"$base_gpu_model\"]" /workspace/qanything_local/scripts/gpu_capabilities.json)
 # 执行Python脚本，传入设备号，并捕获输出
-compute_capability=$(python3 scripts/get_cuda_capability.py $gpu_id1)
-status=$?  # 获取Python脚本的退出状态码
-if [ $status -ne 0 ]; then
+compute_capability=$(python3 scripts/get_cuda_capability.py $gpu_id1) # 获取cuda主版本号和次版本号
+status=$?  # 获取Python脚本的退出状态码 （0表示成功）
+if [ $status -ne 0 ]; then # 如果status不等于0，则表示Python脚本执行出错
     echo "您的显卡型号 $gpu_model 获取算力时出错，请联系技术支持。"
     exit 1
 fi
 echo "GPU1 Model: $gpu_model"
 echo "Compute Capability: $compute_capability"
 
-if ! command -v bc &> /dev/null; then
+# 检查bc是否安装 bc是一个任意精度的计算器语言，用于计算数学表达式。 
+# command -v bc 命令来检查 bc 是否存在于系统的命令路径中。
+# &> /dev/null 将标准输出和标准错误重定向到/dev/null，即丢弃任何输出，只关注命令的返回值。
+if ! command -v bc &> /dev/null; then # 如果 bc 命令不存在（command -v bc 返回非零值）
     echo "Error: bc 命令不存在，请使用 sudo apt update && sudo apt-get install bc 安装，再重新启动。"
     exit 1
 fi
 
+# 用bc来比较版本号大小
 if [ $(echo "$compute_capability >= 7.5" | bc) -eq 1 ]; then
     OCR_USE_GPU="True"
     echo "OCR_USE_GPU=$OCR_USE_GPU because $compute_capability >= 7.5"
@@ -188,12 +211,12 @@ echo "******************** 重要提示 ********************"
 echo "===================================================="
 echo ""
 
-model_size=${MODEL_SIZE}
+model_size=${MODEL_SIZE} # run.sh中设置的模型b数
 model_size_num=$(echo $model_size | grep -oP '^[0-9]+(\.[0-9]+)?')
 
 # 使用默认后端且model_size_num不为0
 if [ "$runtime_backend" = "default" ] && [ "$model_size_num" -ne 0 ]; then
-    if [ -z "$gpu_series" ]; then  # 不是Nvidia 30系列或40系列
+    if [ -z "$gpu_series" ]; then  # -z 检查 gpu_series是不是为空 即不是Nvidia 30系列或40系列 gpu_series前面已经获取
         echo "默认后端为FasterTransformer，仅支持Nvidia RTX 30系列或40系列显卡，您的显卡型号为： $gpu_model, 不在支持列表中，将自动为您切换后端："
         # 如果显存大于等于24GB且计算力大于等于8.6，则可以使用vllm后端
         if [ "$GPU1_MEMORY_SIZE" -ge 24000 ] && [ $(echo "$compute_capability >= 8.6" | bc) -eq 1 ]; then
@@ -207,6 +230,7 @@ if [ "$runtime_backend" = "default" ] && [ "$model_size_num" -ne 0 ]; then
     fi
 fi
 
+# 模型选择
 if [ "$GPU1_MEMORY_SIZE" -lt 4000 ]; then # 显存小于4GB
     echo "您当前的显存为 $GPU1_MEMORY_SIZE MiB 不足以部署本项目，建议升级到GTX 1050Ti或以上级别的显卡"
     exit 1
@@ -286,6 +310,7 @@ elif [ "$GPU1_MEMORY_SIZE" -ge 22000 ] && [ "$GPU1_MEMORY_SIZE" -le 25000 ]; the
 elif [ "$GPU1_MEMORY_SIZE" -gt 25000 ]; then  # 显存大于24GB
     OFFCUT_TOKEN=0
 fi
+# 到GPU1_MEMORY_SIZE似乎只考虑了单张显卡，双显卡启动也只是用第一张显卡来运行，另一张显卡放embeddding模型
 
 update_or_append_to_env "OFFCUT_TOKEN" "$OFFCUT_TOKEN"
 
@@ -293,34 +318,37 @@ update_or_append_to_env "OFFCUT_TOKEN" "$OFFCUT_TOKEN"
 
 start_time=$(date +%s)  # 记录开始时间
 
+# 注意30系和40系的显卡会自动切换到hf或vllm后端，上面变的
 if [ "$runtime_backend" = "default" ]; then
     echo "Executing default FastTransformer runtime_backend"
     # start llm server
-    # 判断一下，如果gpu_id1和gpu_id2相同，则只启动一个triton_server
+    # 判断一下，如果gpu_id1和gpu_id2相同，则只启动一个triton_server 推理服务器
     if [ $gpu_id1 -eq $gpu_id2 ]; then
         echo "The triton server will start on $gpu_id1 GPU"
+        # 设置CUDA_VISIBLE_DEVICES，并在后台不挂断的启动tritonserver
         CUDA_VISIBLE_DEVICES=$gpu_id1 nohup /opt/tritonserver/bin/tritonserver --model-store=/model_repos/QAEnsemble --http-port=10000 --grpc-port=10001 --metrics-port=10002 --log-verbose=1 >  /workspace/qanything_local/logs/debug_logs/llm_embed_rerank_tritonserver.log 2>&1 &
         update_or_append_to_env "RERANK_PORT" "10001"
         update_or_append_to_env "EMBED_PORT" "10001"
     else
         echo "The triton server will start on $gpu_id1 and $gpu_id2 GPUs"
-
+        # 双GPU启动
         CUDA_VISIBLE_DEVICES=$gpu_id1 nohup /opt/tritonserver/bin/tritonserver --model-store=/model_repos/QAEnsemble_base --http-port=10000 --grpc-port=10001 --metrics-port=10002 --log-verbose=1 > /workspace/qanything_local/logs/debug_logs/llm_tritonserver.log 2>&1 &
         CUDA_VISIBLE_DEVICES=$gpu_id2 nohup /opt/tritonserver/bin/tritonserver --model-store=/model_repos/QAEnsemble_embed_rerank --http-port=9000 --grpc-port=9001 --metrics-port=9002 --log-verbose=1 > /workspace/qanything_local/logs/debug_logs/embed_rerank_tritonserver.log 2>&1 &
         update_or_append_to_env "RERANK_PORT" "9001"
         update_or_append_to_env "EMBED_PORT" "9001"
     fi
-
+    # 运行切换到 LLM 服务器目录并启动 Python 脚本
     cd /workspace/qanything_local/qanything_kernel/dependent_server/llm_for_local_serve || exit
     nohup python3 -u llm_server_entrypoint.py --host="0.0.0.0" --port=36001 --model-path="tokenizer_assets" --model-url="0.0.0.0:10001" > /workspace/qanything_local/logs/debug_logs/llm_server_entrypoint.log 2>&1 &
     echo "The llm transfer service is ready! (1/8)"
     echo "大模型中转服务已就绪! (1/8)"
 else
+    # 启动嵌入和重排名的 Triton 服务器，使用 gpu_id2
     echo "The triton server for embedding and reranker will start on $gpu_id2 GPUs"
     CUDA_VISIBLE_DEVICES=$gpu_id2 nohup /opt/tritonserver/bin/tritonserver --model-store=/model_repos/QAEnsemble_embed_rerank --http-port=9000 --grpc-port=9001 --metrics-port=9002 --log-verbose=1 > /workspace/qanything_local/logs/debug_logs/embed_rerank_tritonserver.log 2>&1 &
     update_or_append_to_env "RERANK_PORT" "9001"
     update_or_append_to_env "EMBED_PORT" "9001"
-
+    # 处理模型和环境变量的配置
     LLM_API_SERVE_CONV_TEMPLATE="$conv_template"
     LLM_API_SERVE_MODEL="$model_name"
 
@@ -329,7 +357,7 @@ else
     update_or_append_to_env "LLM_API_SERVE_PORT" "7802"
     update_or_append_to_env "LLM_API_SERVE_MODEL" "$LLM_API_SERVE_MODEL"
     update_or_append_to_env "LLM_API_SERVE_CONV_TEMPLATE" "$LLM_API_SERVE_CONV_TEMPLATE"
-
+    # 启动 FastChat 相关的服务
     mkdir -p /workspace/qanything_local/logs/debug_logs/fastchat_logs && cd /workspace/qanything_local/logs/debug_logs/fastchat_logs
     nohup python3 -m fastchat.serve.controller --host 0.0.0.0 --port 7800 > /workspace/qanything_local/logs/debug_logs/fastchat_logs/fschat_controller_7800.log 2>&1 &
     nohup python3 -m fastchat.serve.openai_api_server --host 0.0.0.0 --port 7802 --controller-address http://0.0.0.0:7800 > /workspace/qanything_local/logs/debug_logs/fastchat_logs/fschat_openai_api_server_7802.log 2>&1 &
@@ -341,6 +369,7 @@ else
         gpus="$gpu_id1"
     fi
 
+    # 在hf和vllm后端中选择
     case $runtime_backend in
     "hf")
         echo "Executing hf runtime_backend"
@@ -369,20 +398,24 @@ else
     esac
 fi
 
+# 后台启动 rerank_server.py
 cd /workspace/qanything_local || exit
 nohup python3 -u qanything_kernel/dependent_server/rerank_for_local_serve/rerank_server.py > /workspace/qanything_local/logs/debug_logs/rerank_server.log 2>&1 &
 echo "The rerank service is ready! (2/8)"
 echo "rerank服务已就绪! (2/8)"
 
+# 在gpu2上启动 ocr_server.py (如果只有一张显卡，gpu2和gpu2一样)
 CUDA_VISIBLE_DEVICES=$gpu_id2 nohup python3 -u qanything_kernel/dependent_server/ocr_serve/ocr_server.py > /workspace/qanything_local/logs/debug_logs/ocr_server.log 2>&1 &
 echo "The ocr service is ready! (3/8)"
 echo "OCR服务已就绪! (3/8)"
 
+# 后台启动sanic_api.py（这是总后端服务）
 nohup python3 -u qanything_kernel/qanything_server/sanic_api.py --mode "local" > /workspace/qanything_local/logs/debug_logs/sanic_api.log 2>&1 &
 
-# 监听后端服务启动
+# 监听后端服务启动 记录当前sanic后端启动的时间戳
 backend_start_time=$(date +%s)
 
+# 进入循环，反复grep（查找） sanic_api.log 检查日志文件是否包含 "Starting worker" 字样
 while ! grep -q "Starting worker" /workspace/qanything_local/logs/debug_logs/sanic_api.log; do
     echo "Waiting for the backend service to start..."
     echo "等待启动后端服务"
@@ -400,10 +433,13 @@ while ! grep -q "Starting worker" /workspace/qanything_local/logs/debug_logs/san
     sleep 5
 done
 
+# 如果成功则会输出 
 echo "The qanything backend service is ready! (4/8)"
 echo "qanything后端服务已就绪! (4/8)"
 
 
+# 确定log日志的路径
+# 这个地方暂时不清楚到底是为什么要这么分
 if [ "$runtime_backend" = "default" ]; then
     if [ $gpu_id1 -eq $gpu_id2 ]; then
         llm_log_file="/workspace/qanything_local/logs/debug_logs/llm_embed_rerank_tritonserver.log"
@@ -417,14 +453,17 @@ else
     embed_rerank_log_file="/workspace/qanything_local/logs/debug_logs/embed_rerank_tritonserver.log"
 fi
 
+# embedding服务 启动和健康状态检查
 tail -f $embed_rerank_log_file &  # 后台输出日志文件
 tail_pid=$!  # 获取tail命令的进程ID
 
+# 记录Embedding 和 Rerank启动事时间
 now_time=$(date +%s)
 while true; do
     current_time=$(date +%s)
     elapsed_time=$((current_time - now_time))
 
+    # 检查指定服务的健康状态
     if [ "$runtime_backend" = "default" ]; then
         if [ $gpu_id1 -eq $gpu_id2 ]; then
             embed_rerank_response=$(curl -s -w "%{http_code}" http://localhost:10000/v2/health/ready -o /dev/null)
@@ -457,6 +496,7 @@ while true; do
     sleep 10
 done
 
+# LLM服务 启动和健康状态检查
 tail -f $llm_log_file &  # 后台输出日志文件
 tail_pid=$!  # 获取tail命令的进程ID
 
