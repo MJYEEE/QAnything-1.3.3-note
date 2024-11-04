@@ -105,9 +105,10 @@ echo "tensor_parallel is set to [$tensor_parallel]"
 echo "gpu_memory_utilization is set to [$gpu_memory_utilization]"
 
 
+# 验证和更新 FastChat 目录下的文件是否有变化，以决定是否需要重新安装依赖
 # 获取默认的 MD5 校验和
 default_checksum=$(cat /workspace/qanything_local/third_party/checksum.config)
-# 计算FastChat文件夹下所有文件的 MD5 校验和
+# 计算FastChat文件夹下所有文件的 MD5 校验和 该行代码具体解析请看对应md文件
 checksum=$(find /workspace/qanything_local/third_party/FastChat -type f -exec md5sum {} + | awk '{print $1}' | sort | md5sum | awk '{print $1}')
 echo "checksum $checksum"
 echo "default_checksum $default_checksum"
@@ -454,16 +455,18 @@ else
 fi
 
 # embedding服务 启动和健康状态检查
+# tail -f 命令用于实时监控日志文件 $embed_rerank_log_file 的内容
 tail -f $embed_rerank_log_file &  # 后台输出日志文件
-tail_pid=$!  # 获取tail命令的进程ID
+tail_pid=$!  # 获取tail命令的进程ID，以便后续关闭
 
-# 记录Embedding 和 Rerank启动事时间
+# 记录Embedding 和 Rerank启动时间
 now_time=$(date +%s)
-while true; do
+while true; do # 进入一个无限循环，定期检查服务的健康状态和是否超时
     current_time=$(date +%s)
     elapsed_time=$((current_time - now_time))
 
     # 检查指定服务的健康状态
+    # 使用 curl 命令请求对应的健康检查端点，并获取 HTTP 响应状态码
     if [ "$runtime_backend" = "default" ]; then
         if [ $gpu_id1 -eq $gpu_id2 ]; then
             embed_rerank_response=$(curl -s -w "%{http_code}" http://localhost:10000/v2/health/ready -o /dev/null)
@@ -475,15 +478,17 @@ while true; do
     fi
 
     # 检查是否超时
+    # 如果服务启动超时（120秒），关闭 tail 命令，并检查日志文件中是否有错误信息
     if [ $elapsed_time -ge 120 ]; then
         kill $tail_pid  # 关闭后台的tail命令
         echo "启动 embedding and rerank 服务超时，自动检查 $embed_rerank_log_file 中是否存在Error..."
 
-        check_log_errors "$embed_rerank_log_file"
+        check_log_errors "$embed_rerank_log_file" # 检查日志中的错误信息
 
         exit 1
     fi
 
+    # 如果健康检查返回状态码 200，说明服务启动成功，关闭 tail 命令并输出成功信息
     if [ $embed_rerank_response -eq 200 ]; then
         kill $tail_pid  # 关闭后台的tail命令
         echo "The embedding and rerank service is ready!. (7.5/8)"
@@ -498,14 +503,14 @@ done
 
 # LLM服务 启动和健康状态检查
 tail -f $llm_log_file &  # 后台输出日志文件
-tail_pid=$!  # 获取tail命令的进程ID
+tail_pid=$!  # 获取tail命令的进程ID，以便后续关闭
 
 now_time=$(date +%s)
 while true; do
     current_time=$(date +%s)
     elapsed_time=$((current_time - now_time))
 
-    # 检查是否超时
+    # 检查是否超时 如果 LLM 服务启动超时（300秒），关闭 tail 命令并检查日志文件中的错误
     if [ $elapsed_time -ge 300 ]; then
         kill $tail_pid  # 关闭后台的tail命令
         echo "启动 LLM 服务超时，自动检查 $llm_log_file 中是否存在Error..."
@@ -518,10 +523,11 @@ while true; do
 
     if [ "$runtime_backend" = "default" ]; then
         llm_response=$(curl -s -w "%{http_code}" http://localhost:10000/v2/health/ready -o /dev/null)
-    else
+    else # 对于非默认后端，使用 POST 请求获取模型列表
         llm_response=$(curl --request POST --url http://localhost:7800/list_models)
     fi
 
+    # 检查返回状态码或模型名称，确定服务是否成功启动
     if [ "$runtime_backend" = "default" ]; then
         if [ $llm_response -eq 200 ]; then
             kill $tail_pid  # 关闭后台的tail命令
